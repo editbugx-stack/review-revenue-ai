@@ -54,6 +54,7 @@ const ReviewDetail = () => {
             name: activeBusiness.name,
             category: activeBusiness.category,
             defaultTone: activeBusiness.default_tone,
+            facts: Array.isArray(activeBusiness.facts) ? activeBusiness.facts as string[] : undefined,
             refundPolicy: activeBusiness.refund_policy || undefined,
             openingHours: activeBusiness.opening_hours || undefined,
           },
