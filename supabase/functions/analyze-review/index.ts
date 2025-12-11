@@ -32,25 +32,22 @@ interface AnalysisResponse {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) {
-      console.error("GEMINI_API_KEY is not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
+      console.error("LOVABLE_API_KEY is not configured");
       return new Response(
-        JSON.stringify({ success: false, error: "GEMINI_API_KEY is not configured" }),
+        JSON.stringify({ success: false, error: "API key is not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Parse request body
     const { reviewId, reviewText, reviewerName, rating, businessContext } = await req.json() as ReviewAnalysisRequest;
 
-    // Validate required fields
     if (!reviewText) {
       return new Response(
         JSON.stringify({ success: false, error: "Review text is required" }),
@@ -60,7 +57,6 @@ serve(async (req) => {
 
     console.log(`Analyzing review ${reviewId} for business: ${businessContext?.name}`);
 
-    // Build prompt for Gemini
     const prompt = `You are an AI assistant that analyzes customer reviews for businesses and generates professional responses.
 
 Business Context:
@@ -78,65 +74,60 @@ Please analyze this review and provide a JSON response with the following struct
 {
   "analysis": {
     "sentiment": "positive" OR "neutral" OR "negative",
-    "themes": ["array", "of", "key", "themes", "from", "the", "review"],
+    "themes": ["array", "of", "key", "themes"],
     "priority": "high" OR "medium" OR "low"
   },
   "replies": [
     {
       "tone": "professional",
-      "text": "A professional business response to the review"
+      "text": "A professional business response"
     },
     {
       "tone": "friendly",
-      "text": "A warm, friendly response to the review"
+      "text": "A warm, friendly response"
     },
     {
       "tone": "empathetic",
-      "text": "An empathetic, understanding response to the review"
+      "text": "An empathetic, understanding response"
     }
   ]
 }
 
 Guidelines:
 - Sentiment should reflect the overall feeling of the review
-- Themes should be 2-5 key topics mentioned (e.g., "service", "quality", "price", "staff", "wait time")
-- Priority: "high" for negative reviews or urgent issues, "medium" for neutral/mixed, "low" for positive reviews
-- Each reply should be 2-4 sentences, address the reviewer by name if provided, and be appropriate for posting publicly
-- Professional tone: formal, business-appropriate
-- Friendly tone: warm, personable, uses the business name
-- Empathetic tone: understanding, acknowledges feelings, shows care`;
+- Themes should be 2-5 key topics mentioned
+- Priority: "high" for negative reviews, "medium" for neutral, "low" for positive
+- Each reply should be 2-4 sentences and address the reviewer by name if provided`;
 
-    // Call Google Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-    
-    const geminiResponse = await fetch(geminiUrl, {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: prompt
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 2048,
-        }
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: "You are a helpful AI that analyzes customer reviews and generates professional responses. Always respond with valid JSON only." },
+          { role: "user", content: prompt }
+        ],
       }),
     });
 
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.error("Gemini API error:", geminiResponse.status, errorText);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("AI gateway error:", response.status, errorText);
       
-      if (geminiResponse.status === 429) {
+      if (response.status === 429) {
         return new Response(
           JSON.stringify({ success: false, error: "Rate limit exceeded. Please try again later." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Payment required. Please add credits." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       
@@ -146,24 +137,19 @@ Guidelines:
       );
     }
 
-    const geminiData = await geminiResponse.json();
-    console.log("Gemini response received");
-
-    // Extract text from Gemini response
-    const responseText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    const data = await response.json();
+    const responseText = data.choices?.[0]?.message?.content;
     
     if (!responseText) {
-      console.error("No text in Gemini response:", JSON.stringify(geminiData));
+      console.error("No content in AI response:", JSON.stringify(data));
       return new Response(
         JSON.stringify({ success: false, error: "No response from AI" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Parse JSON from response (handle potential markdown code blocks)
     let parsedResponse;
     try {
-      // Remove markdown code blocks if present
       let cleanedResponse = responseText.trim();
       if (cleanedResponse.startsWith("```json")) {
         cleanedResponse = cleanedResponse.slice(7);
@@ -173,18 +159,15 @@ Guidelines:
       if (cleanedResponse.endsWith("```")) {
         cleanedResponse = cleanedResponse.slice(0, -3);
       }
-      cleanedResponse = cleanedResponse.trim();
-      
-      parsedResponse = JSON.parse(cleanedResponse);
+      parsedResponse = JSON.parse(cleanedResponse.trim());
     } catch (parseError) {
-      console.error("Failed to parse Gemini response as JSON:", responseText);
+      console.error("Failed to parse AI response as JSON:", responseText);
       return new Response(
         JSON.stringify({ success: false, error: "Failed to parse AI response" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Validate response structure
     const analysis = parsedResponse.analysis || {};
     const replies = parsedResponse.replies || [];
 
@@ -201,7 +184,7 @@ Guidelines:
       })),
     };
 
-    console.log(`Analysis complete for review ${reviewId}: sentiment=${result.analysis?.sentiment}, priority=${result.analysis?.priority}`);
+    console.log(`Analysis complete for review ${reviewId}: sentiment=${result.analysis?.sentiment}`);
 
     return new Response(
       JSON.stringify(result),
