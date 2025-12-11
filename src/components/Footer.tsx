@@ -4,8 +4,8 @@ import { Zap } from "lucide-react";
 const Footer = () => {
   return (
     <footer className="bg-card/50 border-t border-border/50">
-      <div className="container mx-auto px-6 py-12">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+      <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12">
+        <div className="flex flex-col items-center gap-6 sm:gap-8">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-neon flex items-center justify-center">
@@ -17,28 +17,24 @@ const Footer = () => {
           </Link>
 
           {/* Links */}
-          <div className="flex items-center gap-8">
-            <Link to="/" className="text-muted-foreground hover:text-primary transition-colors relative group">
+          <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8">
+            <a href="#features" className="text-sm sm:text-base text-muted-foreground hover:text-primary transition-colors">
               Features
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all group-hover:w-full" />
-            </Link>
-            <Link to="/" className="text-muted-foreground hover:text-primary transition-colors relative group">
+            </a>
+            <a href="#pricing" className="text-sm sm:text-base text-muted-foreground hover:text-primary transition-colors">
               Pricing
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all group-hover:w-full" />
-            </Link>
-            <Link to="/login" className="text-muted-foreground hover:text-primary transition-colors relative group">
+            </a>
+            <Link to="/login" className="text-sm sm:text-base text-muted-foreground hover:text-primary transition-colors">
               Login
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all group-hover:w-full" />
             </Link>
-            <Link to="/register" className="text-muted-foreground hover:text-primary transition-colors relative group">
+            <Link to="/register" className="text-sm sm:text-base text-muted-foreground hover:text-primary transition-colors">
               Register
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-primary transition-all group-hover:w-full" />
             </Link>
           </div>
 
           {/* Copyright */}
-          <p className="text-muted-foreground text-sm">
-            © 2024 AI Review Reply Manager
+          <p className="text-muted-foreground text-xs sm:text-sm text-center">
+            © 2024 AI Review Reply Manager. All rights reserved.
           </p>
         </div>
       </div>

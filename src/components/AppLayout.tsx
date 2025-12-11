@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import AppSidebar from "./AppSidebar";
 import AppHeader from "./AppHeader";
 
@@ -9,12 +9,18 @@ interface AppLayoutProps {
 }
 
 const AppLayout = ({ children, title, subtitle }: AppLayoutProps) => {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-background">
-      <AppSidebar />
-      <div className="ml-16 md:ml-64 transition-all duration-300">
-        <AppHeader title={title} subtitle={subtitle} />
-        <main className="p-6">
+      <AppSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="lg:ml-64 transition-all duration-300">
+        <AppHeader 
+          title={title} 
+          subtitle={subtitle} 
+          onMenuClick={() => setSidebarOpen(true)} 
+        />
+        <main className="p-4 sm:p-6">
           <div className="max-w-7xl mx-auto">
             {children}
           </div>

@@ -11,21 +11,21 @@ const Landing = () => {
       <Navbar />
       
       {/* Hero Section */}
-      <section className="relative pt-32 pb-20 overflow-hidden">
+      <section className="relative pt-24 sm:pt-32 pb-12 sm:pb-20 overflow-hidden">
         {/* Background gradient */}
         <div className="absolute inset-0 bg-gradient-radial from-primary/5 via-transparent to-transparent" />
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-neon-purple/10 rounded-full blur-3xl" />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-neon-cyan/10 rounded-full blur-3xl" />
         
-        <div className="container mx-auto px-6 relative">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
+        <div className="container mx-auto px-4 sm:px-6 relative">
+          <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             {/* Left content */}
             <div className="space-y-8 animate-fade-in-up">
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold leading-tight">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-display font-bold leading-tight">
                 Turn Stressful Reviews Into{" "}
                 <span className="gradient-text">Revenue</span> — Automatically.
               </h1>
-              <p className="text-xl text-muted-foreground max-w-lg">
+              <p className="text-lg sm:text-xl text-muted-foreground max-w-lg">
                 AI that reads, understands, replies, and grows your business reputation while you sleep.
               </p>
               
@@ -68,10 +68,10 @@ const Landing = () => {
       </section>
 
       {/* Social Proof Bar */}
-      <section className="py-12 border-y border-border/50 bg-card/30">
-        <div className="container mx-auto px-6">
-          <p className="text-center text-muted-foreground mb-8">Trusted by local businesses everywhere</p>
-          <div className="flex flex-wrap justify-center gap-8 md:gap-16">
+      <section className="py-8 sm:py-12 border-y border-border/50 bg-card/30">
+        <div className="container mx-auto px-4 sm:px-6">
+          <p className="text-center text-muted-foreground mb-6 sm:mb-8 text-sm sm:text-base">Trusted by local businesses everywhere</p>
+          <div className="flex flex-wrap justify-center gap-4 sm:gap-8 md:gap-16">
             {[
               { icon: Building2, label: "Dental Clinics" },
               { icon: Scissors, label: "Salons" },
@@ -89,18 +89,18 @@ const Landing = () => {
       </section>
 
       {/* How It Works */}
-      <section className="py-24">
-        <div className="container mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-display font-bold mb-4">
+      <section id="features" className="py-16 sm:py-24">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12 sm:mb-16">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
               How It <span className="gradient-text">Works</span>
             </h2>
-            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+            <p className="text-muted-foreground text-base sm:text-lg max-w-2xl mx-auto">
               Transform your review management in three simple steps
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8 relative">
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-8 relative">
             {/* Connecting line */}
             <div className="hidden md:block absolute top-16 left-1/4 right-1/4 h-0.5 bg-gradient-neon opacity-30" />
             
@@ -125,18 +125,18 @@ const Landing = () => {
       </section>
 
       {/* Dashboard Preview */}
-      <section className="py-24 bg-card/30 border-y border-border/50">
-        <div className="container mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-display font-bold mb-4">
+      <section className="py-16 sm:py-24 bg-card/30 border-y border-border/50">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12 sm:mb-16">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
               Powerful <span className="gradient-text">Dashboard</span>
             </h2>
-            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+            <p className="text-muted-foreground text-base sm:text-lg max-w-2xl mx-auto">
               Everything you need to manage reviews in one beautiful interface
             </p>
           </div>
 
-          <div className="grid lg:grid-cols-2 gap-8">
+          <div className="grid lg:grid-cols-2 gap-6 sm:gap-8">
             {/* Mock Dashboard Card */}
             <div className="bg-card rounded-2xl border border-border/50 p-6 space-y-4">
               <div className="flex items-center justify-between">
@@ -224,18 +224,18 @@ const Landing = () => {
       </section>
 
       {/* Pricing */}
-      <section className="py-24">
-        <div className="container mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-display font-bold mb-4">
+      <section id="pricing" className="py-16 sm:py-24">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12 sm:mb-16">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
               Simple, Transparent <span className="gradient-text">Pricing</span>
             </h2>
-            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+            <p className="text-muted-foreground text-base sm:text-lg max-w-2xl mx-auto">
               Start free, scale as you grow. No hidden fees.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-8 max-w-5xl mx-auto">
             {[
               {
                 name: "Starter",
@@ -297,14 +297,14 @@ const Landing = () => {
       </section>
 
       {/* CTA */}
-      <section className="py-24 relative overflow-hidden">
+      <section className="py-16 sm:py-24 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-radial from-primary/10 via-transparent to-transparent" />
-        <div className="container mx-auto px-6 relative">
+        <div className="container mx-auto px-4 sm:px-6 relative">
           <div className="text-center max-w-3xl mx-auto">
-            <h2 className="text-3xl md:text-4xl font-display font-bold mb-4">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold mb-4">
               Ready to Transform Your <span className="gradient-text">Reviews?</span>
             </h2>
-            <p className="text-muted-foreground text-lg mb-8">
+            <p className="text-muted-foreground text-base sm:text-lg mb-6 sm:mb-8">
               Join thousands of local businesses saving time and growing revenue with AI-powered review management.
             </p>
             <Link to="/register">
