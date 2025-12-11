@@ -149,11 +149,11 @@ const ReviewDetail = () => {
         Back to Reviews
       </Link>
 
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Left Panel - Full Review */}
         <div className="space-y-6">
-          <div className="bg-card rounded-2xl border border-border/50 p-6">
-            <div className="flex items-start justify-between mb-6">
+          <div className="bg-card rounded-2xl border border-border/50 p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4 sm:mb-6">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-foreground font-bold text-lg">
                   {review.reviewer_name[0]}
@@ -206,11 +206,11 @@ const ReviewDetail = () => {
           </div>
         </div>
 
-        {/* Right Panel - AI Analysis & Drafts */}
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
+          {/* AI Analysis */}
           {/* AI Analysis */}
           {(review.analysis_summary || review.analysis_category || review.analysis_urgency) && (
-            <div className="bg-card rounded-2xl border border-border/50 p-6">
+            <div className="bg-card rounded-2xl border border-border/50 p-4 sm:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-8 rounded-lg bg-gradient-neon flex items-center justify-center">
                   <Zap className="w-4 h-4 text-primary-foreground" />
