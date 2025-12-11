@@ -1,3 +1,4 @@
+import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { 
@@ -11,85 +12,134 @@ import {
   Calendar,
   Tag,
   TrendingUp,
-  MessageSquare
+  MessageSquare,
+  Loader2
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import { useReviewWithReplies, useBusinesses, useAnalyzeReview, useUpdateReview, useCreateReply } from "@/hooks/useBusinessData";
+import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
 
 const ReviewDetail = () => {
   const { id } = useParams();
+  const { toast } = useToast();
+  const [generatedReplies, setGeneratedReplies] = useState<Array<{ tone: string; text: string }>>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
   
-  // Mock data for the review
-  const review = {
-    id,
-    reviewer: "Emily Rodriguez",
-    rating: 1,
-    source: "Facebook",
-    sentiment: "Negative",
-    date: "December 5, 2024",
-    fullText: `Very disappointed with my experience today. I was promised a callback within 24 hours regarding my service request, but I never received one. When I finally reached someone after calling multiple times, they seemed unaware of my previous complaint.
+  const { data, isLoading } = useReviewWithReplies(id);
+  const { data: businesses } = useBusinesses();
+  const activeBusiness = businesses?.[0];
+  const analyzeReview = useAnalyzeReview();
+  const updateReview = useUpdateReview();
+  const createReply = useCreateReply();
 
-The quality of service was also below expectations. I've been a loyal customer for 3 years and this is the first time I've felt the need to leave a negative review. I hope management takes this feedback seriously.
+  const review = data?.review;
+  const replies = data?.replies || [];
 
-I would have given zero stars if that was an option. Please improve your customer communication and follow-through.`,
-  };
-
-  const analysis = {
-    summary: "Customer expresses frustration about lack of follow-up communication and perceived decline in service quality. Long-term customer showing signs of potential churn.",
-    category: "Customer Service / Communication",
-    urgency: "High",
-    keyIssues: [
-      "No callback as promised",
-      "Poor internal communication",
-      "Declining service quality perception"
-    ]
-  };
-
-  const replyDrafts = [
-    {
-      tone: "Friendly",
-      text: `Hi Emily,
-
-Thank you so much for taking the time to share your experience with us. We're truly sorry to hear that we fell short of your expectations, especially as a valued customer of 3 years.
-
-You're absolutely right - a callback was promised and we should have followed through. This is not the level of service we strive to provide, and I'm personally looking into what went wrong.
-
-I'd love the opportunity to make this right. Could you please reach out to me directly at [email]? I want to ensure your concerns are addressed properly.
-
-Thank you for your patience and for giving us the chance to improve.
-
-Warm regards,
-[Your Name]`
-    },
-    {
-      tone: "Formal",
-      text: `Dear Ms. Rodriguez,
-
-Thank you for bringing this matter to our attention. We sincerely apologize for the lapse in communication regarding your service request and the subsequent difficulties you experienced when trying to reach our team.
-
-As a valued customer of three years, you deserve better service than what you received. We are currently reviewing our internal processes to ensure this situation does not recur.
-
-We would appreciate the opportunity to discuss this matter further and resolve your concerns. Please contact our customer service manager at your earliest convenience.
-
-Sincerely,
-[Your Name]
-Customer Relations`
-    },
-    {
-      tone: "Apologetic",
-      text: `Emily,
-
-I am deeply sorry for the experience you had with us. There's no excuse for failing to call you back as promised, and I understand how frustrating it must have been to have to reach out multiple times.
-
-After 3 years of your loyalty, you deserved so much better. I take full responsibility for this breakdown in service.
-
-Please allow me to make it up to you. I'd like to offer [specific compensation] and personally ensure your concerns are addressed. My direct line is [phone number] - please call me at your convenience.
-
-We truly value your business and I hope to have the chance to restore your faith in us.
-
-With sincere apologies,
-[Your Name]`
+  const handleGenerateReplies = async () => {
+    if (!review || !activeBusiness) return;
+    
+    setIsGenerating(true);
+    const newReplies: Array<{ tone: string; text: string }> = [];
+    
+    const tones: Array<"friendly" | "formal" | "apologetic"> = ["friendly", "formal", "apologetic"];
+    
+    for (const tone of tones) {
+      try {
+        const result = await analyzeReview.mutateAsync({
+          reviewText: review.text,
+          reviewerName: review.reviewer_name,
+          rating: review.rating,
+          businessContext: {
+            name: activeBusiness.name,
+            category: activeBusiness.category,
+            defaultTone: activeBusiness.default_tone,
+            refundPolicy: activeBusiness.refund_policy || undefined,
+            openingHours: activeBusiness.opening_hours || undefined,
+          },
+          action: "both",
+          tone,
+        });
+        
+        if (result.reply) {
+          newReplies.push({ tone: result.reply.tone, text: result.reply.replyText });
+        }
+        
+        // Also update analysis if available
+        if (result.analysis && !review.sentiment) {
+          await updateReview.mutateAsync({
+            id: review.id,
+            sentiment: result.analysis.sentiment,
+            analysis_urgency: result.analysis.urgency,
+            analysis_category: result.analysis.category,
+            analysis_summary: result.analysis.summary,
+          });
+        }
+      } catch (error) {
+        console.error(`Failed to generate ${tone} reply:`, error);
+      }
     }
-  ];
+    
+    setGeneratedReplies(newReplies);
+    setIsGenerating(false);
+    
+    if (newReplies.length > 0) {
+      toast({ title: "Replies generated", description: `${newReplies.length} reply drafts created` });
+    }
+  };
+
+  const handleApproveReply = async (text: string, tone: string) => {
+    if (!review) return;
+    
+    const toneValue = tone.toLowerCase() as "friendly" | "formal" | "apologetic";
+    
+    const reply = await createReply.mutateAsync({
+      review_id: review.id,
+      text,
+      tone: toneValue,
+      is_approved: true,
+      created_by: "system_ai",
+    });
+    
+    await updateReview.mutateAsync({
+      id: review.id,
+      status: "replied",
+      approved_reply_id: reply.id,
+      replied_at: new Date().toISOString(),
+    });
+    
+    toast({ title: "Reply approved", description: "The reply has been saved and marked as approved." });
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied", description: "Reply copied to clipboard" });
+  };
+
+  if (isLoading) {
+    return (
+      <AppLayout title="Review Detail" subtitle="View and respond to customer feedback">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!review) {
+    return (
+      <AppLayout title="Review Detail" subtitle="View and respond to customer feedback">
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">Review not found</p>
+          <Link to="/reviews">
+            <Button variant="neon-outline" className="mt-4">
+              Back to Reviews
+            </Button>
+          </Link>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="Review Detail" subtitle="View and respond to customer feedback">
@@ -106,18 +156,20 @@ With sincere apologies,
             <div className="flex items-start justify-between mb-6">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-foreground font-bold text-lg">
-                  {review.reviewer[0]}
+                  {review.reviewer_name[0]}
                 </div>
                 <div>
-                  <h2 className="font-display font-bold text-lg">{review.reviewer}</h2>
+                  <h2 className="font-display font-bold text-lg">{review.reviewer_name}</h2>
                   <div className="flex items-center gap-2 mt-1">
                     <div className="flex gap-0.5">
                       {[...Array(5)].map((_, j) => (
-                        <Star key={j} className={`w-4 h-4 ${j < review.rating ? 'text-destructive fill-destructive' : 'text-muted'}`} />
+                        <Star key={j} className={`w-4 h-4 ${j < review.rating ? (review.rating <= 2 ? 'text-destructive fill-destructive' : 'text-primary fill-primary') : 'text-muted'}`} />
                       ))}
                     </div>
                     <span className="text-sm text-muted-foreground">·</span>
-                    <span className="text-sm text-muted-foreground">{review.date}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {format(new Date(review.review_date), "MMMM d, yyyy")}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -125,24 +177,30 @@ With sincere apologies,
 
             {/* Tags */}
             <div className="flex flex-wrap gap-2 mb-6">
-              <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground">
+              <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground capitalize">
                 <Tag className="w-3 h-3" />
                 {review.source}
               </span>
-              <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-destructive/20 text-destructive">
-                <TrendingUp className="w-3 h-3" />
-                {review.sentiment}
-              </span>
+              {review.sentiment && (
+                <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full capitalize ${
+                  review.sentiment === "positive" ? "bg-primary/20 text-primary" :
+                  review.sentiment === "neutral" ? "bg-secondary/20 text-secondary" :
+                  "bg-destructive/20 text-destructive"
+                }`}>
+                  <TrendingUp className="w-3 h-3" />
+                  {review.sentiment}
+                </span>
+              )}
               <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground">
                 <Calendar className="w-3 h-3" />
-                {review.date}
+                {format(new Date(review.review_date), "MMM d, yyyy")}
               </span>
             </div>
 
             {/* Full Review Text */}
             <div className="prose prose-sm prose-invert max-w-none">
               <p className="text-foreground whitespace-pre-line leading-relaxed">
-                {review.fullText}
+                {review.text}
               </p>
             </div>
           </div>
@@ -151,103 +209,158 @@ With sincere apologies,
         {/* Right Panel - AI Analysis & Drafts */}
         <div className="space-y-6">
           {/* AI Analysis */}
-          <div className="bg-card rounded-2xl border border-border/50 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-neon flex items-center justify-center">
-                <Zap className="w-4 h-4 text-primary-foreground" />
-              </div>
-              <h3 className="font-display font-bold">AI Analysis</h3>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Summary</p>
-                <p className="text-sm text-foreground">{analysis.summary}</p>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Category</p>
-                  <p className="text-sm text-foreground">{analysis.category}</p>
+          {(review.analysis_summary || review.analysis_category || review.analysis_urgency) && (
+            <div className="bg-card rounded-2xl border border-border/50 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-gradient-neon flex items-center justify-center">
+                  <Zap className="w-4 h-4 text-primary-foreground" />
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Urgency</p>
-                  <span className="text-xs px-2 py-1 rounded-full bg-destructive/20 text-destructive font-medium">
-                    {analysis.urgency}
+                <h3 className="font-display font-bold">AI Analysis</h3>
+              </div>
+
+              <div className="space-y-4">
+                {review.analysis_summary && (
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Summary</p>
+                    <p className="text-sm text-foreground">{review.analysis_summary}</p>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-2 gap-4">
+                  {review.analysis_category && (
+                    <div>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Category</p>
+                      <p className="text-sm text-foreground">{review.analysis_category}</p>
+                    </div>
+                  )}
+                  {review.analysis_urgency && (
+                    <div>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Urgency</p>
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium capitalize ${
+                        review.analysis_urgency === "high" ? "bg-destructive/20 text-destructive" :
+                        review.analysis_urgency === "medium" ? "bg-secondary/20 text-secondary" :
+                        "bg-muted text-muted-foreground"
+                      }`}>
+                        {review.analysis_urgency}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Generate Replies Button */}
+          {generatedReplies.length === 0 && replies.length === 0 && (
+            <Button 
+              variant="neon" 
+              className="w-full" 
+              onClick={handleGenerateReplies}
+              disabled={isGenerating}
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating replies...
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4" />
+                  Generate AI Reply Drafts
+                </>
+              )}
+            </Button>
+          )}
+
+          {/* Info Bar */}
+          {review.missing_info_required && (
+            <div className="bg-secondary/10 border border-secondary/30 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-foreground">More Business Info Recommended</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Add more business details to generate more accurate replies.
+                </p>
+                <Link to="/settings">
+                  <Button variant="neon-outline" size="sm" className="mt-3">
+                    Add Business Info
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* Approved Replies */}
+          {replies.filter(r => r.is_approved).length > 0 && (
+            <div className="bg-card rounded-2xl border border-primary/30 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Check className="w-5 h-5 text-primary" />
+                <h3 className="font-display font-bold">Approved Reply</h3>
+              </div>
+              {replies.filter(r => r.is_approved).map((reply) => (
+                <div key={reply.id} className="bg-primary/10 rounded-xl p-4">
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium capitalize mb-3 inline-block ${
+                    reply.tone === "friendly" ? "bg-primary/20 text-primary" :
+                    reply.tone === "formal" ? "bg-secondary/20 text-secondary" :
+                    "bg-accent/20 text-accent"
+                  }`}>
+                    {reply.tone}
                   </span>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Key Issues</p>
-                <ul className="space-y-1">
-                  {analysis.keyIssues.map((issue, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm text-foreground">
-                      <div className="w-1.5 h-1.5 rounded-full bg-destructive" />
-                      {issue}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* Warning Bar */}
-          <div className="bg-secondary/10 border border-secondary/30 rounded-xl p-4 flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-foreground">More Business Info Required</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Add your callback policy and compensation guidelines to generate more accurate replies.
-              </p>
-              <Link to="/settings?tab=business">
-                <Button variant="neon-outline" size="sm" className="mt-3">
-                  Add Business Info
-                </Button>
-              </Link>
-            </div>
-          </div>
-
-          {/* Reply Drafts */}
-          <div className="bg-card rounded-2xl border border-border/50 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <MessageSquare className="w-5 h-5 text-primary" />
-              <h3 className="font-display font-bold">AI-Generated Reply Drafts</h3>
-            </div>
-
-            <div className="space-y-4">
-              {replyDrafts.map((draft, i) => (
-                <div key={i} className="border border-border/50 rounded-xl p-4 hover:border-primary/30 transition-colors">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                      draft.tone === "Friendly" ? "bg-primary/20 text-primary" :
-                      draft.tone === "Formal" ? "bg-secondary/20 text-secondary" :
-                      "bg-accent/20 text-accent"
-                    }`}>
-                      {draft.tone}
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted-foreground whitespace-pre-line line-clamp-4">
-                    {draft.text}
+                  <p className="text-sm text-foreground whitespace-pre-line">
+                    {reply.text}
                   </p>
-                  <div className="flex gap-2 mt-4">
-                    <Button variant="ghost" size="sm">
-                      <Edit3 className="w-3 h-3" />
-                      Edit
-                    </Button>
-                    <Button variant="ghost" size="sm">
-                      <Copy className="w-3 h-3" />
-                      Copy
-                    </Button>
-                    <Button variant="neon" size="sm">
-                      <Check className="w-3 h-3" />
-                      Approve
-                    </Button>
-                  </div>
+                  <Button variant="ghost" size="sm" className="mt-3" onClick={() => copyToClipboard(reply.text)}>
+                    <Copy className="w-3 h-3" />
+                    Copy
+                  </Button>
                 </div>
               ))}
             </div>
-          </div>
+          )}
+
+          {/* Generated Reply Drafts */}
+          {generatedReplies.length > 0 && (
+            <div className="bg-card rounded-2xl border border-border/50 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <MessageSquare className="w-5 h-5 text-primary" />
+                <h3 className="font-display font-bold">AI-Generated Reply Drafts</h3>
+              </div>
+
+              <div className="space-y-4">
+                {generatedReplies.map((draft, i) => (
+                  <div key={i} className="border border-border/50 rounded-xl p-4 hover:border-primary/30 transition-colors">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className={`text-xs px-2.5 py-1 rounded-full font-medium capitalize ${
+                        draft.tone === "friendly" ? "bg-primary/20 text-primary" :
+                        draft.tone === "formal" ? "bg-secondary/20 text-secondary" :
+                        "bg-accent/20 text-accent"
+                      }`}>
+                        {draft.tone}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground whitespace-pre-line line-clamp-6">
+                      {draft.text}
+                    </p>
+                    <div className="flex gap-2 mt-4">
+                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(draft.text)}>
+                        <Copy className="w-3 h-3" />
+                        Copy
+                      </Button>
+                      <Button 
+                        variant="neon" 
+                        size="sm" 
+                        onClick={() => handleApproveReply(draft.text, draft.tone)}
+                        disabled={createReply.isPending}
+                      >
+                        <Check className="w-3 h-3" />
+                        Approve
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </AppLayout>

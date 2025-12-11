@@ -6,99 +6,125 @@ import {
   Zap, 
   Star, 
   Search,
-  ChevronDown,
   Eye,
   MoreHorizontal,
-  Filter
+  Filter,
+  Loader2
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useBusinesses, useReviews, useCreateReview, useAnalyzeReview, useUpdateReview } from "@/hooks/useBusinessData";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 
-const statusFilters = ["All", "Pending", "Replied", "Escalated"];
-const sentimentFilters = ["All", "Positive", "Neutral", "Negative"];
-const platformFilters = ["All", "Google", "Yelp", "Facebook", "Manual"];
-const dateFilters = ["Last 7 Days", "Last 30 Days", "Custom Range"];
-
-const mockReviews = [
-  { 
-    id: 1,
-    reviewer: "Sarah Mitchell", 
-    rating: 5, 
-    source: "Google", 
-    snippet: "Absolutely amazing experience! The team went above and beyond to help me. Would highly recommend to anyone looking for...", 
-    sentiment: "Positive", 
-    status: "Pending",
-    urgency: "Low",
-    date: "2 hours ago"
-  },
-  { 
-    id: 2,
-    reviewer: "John Davis", 
-    rating: 3, 
-    source: "Yelp", 
-    snippet: "Service was okay but the wait time was longer than expected. The staff were friendly but I had to wait 45 minutes...", 
-    sentiment: "Neutral", 
-    status: "Pending",
-    urgency: "Medium",
-    date: "5 hours ago"
-  },
-  { 
-    id: 3,
-    reviewer: "Emily Rodriguez", 
-    rating: 1, 
-    source: "Facebook", 
-    snippet: "Very disappointed with my experience. I was promised a call back and never received one. The quality of service...", 
-    sentiment: "Negative", 
-    status: "Escalated",
-    urgency: "High",
-    date: "1 day ago"
-  },
-  { 
-    id: 4,
-    reviewer: "Mike Thompson", 
-    rating: 5, 
-    source: "Google", 
-    snippet: "Best service in town! I've been coming here for years and they never disappoint. The attention to detail is...", 
-    sentiment: "Positive", 
-    status: "Replied",
-    urgency: "Low",
-    date: "2 days ago"
-  },
-  { 
-    id: 5,
-    reviewer: "Lisa Chen", 
-    rating: 4, 
-    source: "Yelp", 
-    snippet: "Great experience overall. The staff were very professional and helpful. Only minor issue was parking...", 
-    sentiment: "Positive", 
-    status: "Replied",
-    urgency: "Low",
-    date: "3 days ago"
-  },
-];
+const statusFilters = ["All", "pending", "replied", "escalated"];
+const sentimentFilters = ["All", "positive", "neutral", "negative"];
+const sourceFilters = ["All", "google", "yelp", "facebook", "manual"];
 
 const Reviews = () => {
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedSentiment, setSelectedSentiment] = useState("All");
-  const [selectedPlatform, setSelectedPlatform] = useState("All");
-  const [selectedDate, setSelectedDate] = useState("Last 7 Days");
-  const [selectedReviews, setSelectedReviews] = useState<number[]>([]);
+  const [selectedSource, setSelectedSource] = useState("All");
+  const [selectedReviews, setSelectedReviews] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [newReview, setNewReview] = useState({
+    reviewer_name: "",
+    rating: 5,
+    text: "",
+    source: "manual" as const,
+  });
+  const { toast } = useToast();
+
+  const { data: businesses } = useBusinesses();
+  const activeBusiness = businesses?.[0];
+  const { data: reviews, isLoading } = useReviews(activeBusiness?.id);
+  const createReview = useCreateReview();
+  const analyzeReview = useAnalyzeReview();
+  const updateReview = useUpdateReview();
+
+  // Filter reviews
+  const filteredReviews = reviews?.filter(review => {
+    if (selectedStatus !== "All" && review.status !== selectedStatus) return false;
+    if (selectedSentiment !== "All" && review.sentiment !== selectedSentiment) return false;
+    if (selectedSource !== "All" && review.source !== selectedSource) return false;
+    if (searchQuery && !review.text.toLowerCase().includes(searchQuery.toLowerCase()) && 
+        !review.reviewer_name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    return true;
+  }) || [];
 
   const toggleSelectAll = () => {
-    if (selectedReviews.length === mockReviews.length) {
+    if (selectedReviews.length === filteredReviews.length) {
       setSelectedReviews([]);
     } else {
-      setSelectedReviews(mockReviews.map(r => r.id));
+      setSelectedReviews(filteredReviews.map(r => r.id));
     }
   };
 
-  const toggleSelectReview = (id: number) => {
+  const toggleSelectReview = (id: string) => {
     if (selectedReviews.includes(id)) {
       setSelectedReviews(selectedReviews.filter(r => r !== id));
     } else {
       setSelectedReviews([...selectedReviews, id]);
     }
+  };
+
+  const handleAddReview = async () => {
+    if (!activeBusiness || !newReview.reviewer_name || !newReview.text) return;
+    
+    await createReview.mutateAsync({
+      business_id: activeBusiness.id,
+      reviewer_name: newReview.reviewer_name,
+      rating: newReview.rating,
+      text: newReview.text,
+      source: newReview.source,
+    });
+    
+    setIsAddOpen(false);
+    setNewReview({ reviewer_name: "", rating: 5, text: "", source: "manual" });
+  };
+
+  const handleBulkAnalyze = async () => {
+    if (!activeBusiness || selectedReviews.length === 0) return;
+    
+    toast({ title: "Analyzing reviews...", description: `Processing ${selectedReviews.length} reviews` });
+    
+    for (const reviewId of selectedReviews) {
+      const review = reviews?.find(r => r.id === reviewId);
+      if (!review) continue;
+      
+      try {
+        const result = await analyzeReview.mutateAsync({
+          reviewText: review.text,
+          reviewerName: review.reviewer_name,
+          rating: review.rating,
+          businessContext: {
+            name: activeBusiness.name,
+            category: activeBusiness.category,
+            defaultTone: activeBusiness.default_tone,
+          },
+          action: "analyze",
+        });
+        
+        if (result.analysis) {
+          await updateReview.mutateAsync({
+            id: reviewId,
+            sentiment: result.analysis.sentiment,
+            analysis_urgency: result.analysis.urgency,
+            analysis_category: result.analysis.category,
+            analysis_summary: result.analysis.summary,
+            missing_info_required: result.analysis.missingInfoRequired,
+            missing_info_fields: result.analysis.missingInfoFields || [],
+          });
+        }
+      } catch (error) {
+        console.error("Failed to analyze review:", reviewId, error);
+      }
+    }
+    
+    toast({ title: "Analysis complete", description: "Reviews have been analyzed" });
+    setSelectedReviews([]);
   };
 
   return (
@@ -107,16 +133,77 @@ const Reviews = () => {
       <div className="flex flex-col sm:flex-row gap-4 justify-between mb-6">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search reviews..." className="pl-10" />
+          <Input 
+            placeholder="Search reviews..." 
+            className="pl-10"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
         </div>
         <div className="flex gap-3">
-          <Button variant="ghost">
-            <Plus className="w-4 h-4" />
-            Add Review
-          </Button>
-          <Button variant="neon">
-            <Zap className="w-4 h-4" />
-            Analyze & Generate Replies
+          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+            <DialogTrigger asChild>
+              <Button variant="ghost">
+                <Plus className="w-4 h-4" />
+                Add Review
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Manual Review</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 mt-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Reviewer Name</label>
+                  <Input 
+                    placeholder="Customer name"
+                    value={newReview.reviewer_name}
+                    onChange={(e) => setNewReview({ ...newReview, reviewer_name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Rating</label>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setNewReview({ ...newReview, rating: star })}
+                        className="p-1"
+                      >
+                        <Star className={`w-6 h-6 ${star <= newReview.rating ? 'text-primary fill-primary' : 'text-muted'}`} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Review Text</label>
+                  <textarea 
+                    className="w-full h-32 rounded-xl border border-border bg-muted/50 px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    placeholder="Enter the review text..."
+                    value={newReview.text}
+                    onChange={(e) => setNewReview({ ...newReview, text: e.target.value })}
+                  />
+                </div>
+                <Button 
+                  variant="neon" 
+                  className="w-full"
+                  onClick={handleAddReview}
+                  disabled={createReview.isPending}
+                >
+                  {createReview.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Add Review
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Button 
+            variant="neon" 
+            onClick={handleBulkAnalyze}
+            disabled={selectedReviews.length === 0 || analyzeReview.isPending}
+          >
+            {analyzeReview.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            Analyze Selected ({selectedReviews.length})
           </Button>
         </div>
       </div>
@@ -135,7 +222,7 @@ const Reviews = () => {
               key={status}
               onClick={() => setSelectedStatus(status)}
               className={cn(
-                "px-3 py-1.5 text-sm rounded-lg transition-all",
+                "px-3 py-1.5 text-sm rounded-lg transition-all capitalize",
                 selectedStatus === status
                   ? "bg-primary/20 text-primary border border-primary/30"
                   : "bg-muted/50 text-muted-foreground hover:bg-muted"
@@ -155,7 +242,7 @@ const Reviews = () => {
               key={sentiment}
               onClick={() => setSelectedSentiment(sentiment)}
               className={cn(
-                "px-3 py-1.5 text-sm rounded-lg transition-all",
+                "px-3 py-1.5 text-sm rounded-lg transition-all capitalize",
                 selectedSentiment === sentiment
                   ? "bg-primary/20 text-primary border border-primary/30"
                   : "bg-muted/50 text-muted-foreground hover:bg-muted"
@@ -165,126 +252,132 @@ const Reviews = () => {
             </button>
           ))}
         </div>
-
-        <div className="w-px h-6 bg-border hidden sm:block" />
-
-        {/* Platform Dropdown */}
-        <button className="flex items-center gap-2 px-3 py-1.5 text-sm bg-muted/50 text-muted-foreground rounded-lg hover:bg-muted transition-colors">
-          {selectedPlatform}
-          <ChevronDown className="w-3 h-3" />
-        </button>
-
-        {/* Date Dropdown */}
-        <button className="flex items-center gap-2 px-3 py-1.5 text-sm bg-muted/50 text-muted-foreground rounded-lg hover:bg-muted transition-colors">
-          {selectedDate}
-          <ChevronDown className="w-3 h-3" />
-        </button>
       </div>
 
-      {/* Reviews Table */}
+      {/* Reviews List */}
       <div className="bg-card rounded-2xl border border-border/50 overflow-hidden">
-        {/* Table Header */}
-        <div className="grid grid-cols-12 gap-4 p-4 border-b border-border/50 bg-muted/30 text-sm font-medium text-muted-foreground">
-          <div className="col-span-1 flex items-center">
-            <input 
-              type="checkbox" 
-              checked={selectedReviews.length === mockReviews.length}
-              onChange={toggleSelectAll}
-              className="w-4 h-4 rounded border-border bg-muted accent-primary"
-            />
+        {isLoading ? (
+          <div className="p-12 text-center">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
           </div>
-          <div className="col-span-2">Reviewer</div>
-          <div className="col-span-1">Rating</div>
-          <div className="col-span-1">Source</div>
-          <div className="col-span-3">Snippet</div>
-          <div className="col-span-1">Sentiment</div>
-          <div className="col-span-1">Status</div>
-          <div className="col-span-1">Urgency</div>
-          <div className="col-span-1">Action</div>
-        </div>
-
-        {/* Table Body */}
-        <div className="divide-y divide-border/50">
-          {mockReviews.map((review) => (
-            <div 
-              key={review.id} 
-              className={cn(
-                "grid grid-cols-12 gap-4 p-4 items-center hover:bg-muted/20 transition-colors group",
-                selectedReviews.includes(review.id) && "bg-primary/5"
-              )}
-            >
-              <div className="col-span-1">
+        ) : filteredReviews.length === 0 ? (
+          <div className="p-12 text-center">
+            <p className="text-muted-foreground">No reviews found</p>
+          </div>
+        ) : (
+          <>
+            {/* Table Header */}
+            <div className="grid grid-cols-12 gap-4 p-4 border-b border-border/50 bg-muted/30 text-sm font-medium text-muted-foreground">
+              <div className="col-span-1 flex items-center">
                 <input 
                   type="checkbox" 
-                  checked={selectedReviews.includes(review.id)}
-                  onChange={() => toggleSelectReview(review.id)}
+                  checked={selectedReviews.length === filteredReviews.length && filteredReviews.length > 0}
+                  onChange={toggleSelectAll}
                   className="w-4 h-4 rounded border-border bg-muted accent-primary"
                 />
               </div>
-              <div className="col-span-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-foreground font-medium text-sm">
-                    {review.reviewer[0]}
-                  </div>
-                  <span className="font-medium text-foreground text-sm truncate">{review.reviewer}</span>
-                </div>
-              </div>
-              <div className="col-span-1">
-                <div className="flex gap-0.5">
-                  {[...Array(5)].map((_, j) => (
-                    <Star key={j} className={`w-3 h-3 ${j < review.rating ? 'text-primary fill-primary' : 'text-muted'}`} />
-                  ))}
-                </div>
-              </div>
-              <div className="col-span-1">
-                <span className="text-sm text-muted-foreground">{review.source}</span>
-              </div>
-              <div className="col-span-3">
-                <p className="text-sm text-muted-foreground truncate">{review.snippet}</p>
-              </div>
-              <div className="col-span-1">
-                <span className={cn(
-                  "text-xs px-2 py-1 rounded-full font-medium",
-                  review.sentiment === "Positive" && "bg-primary/20 text-primary",
-                  review.sentiment === "Neutral" && "bg-secondary/20 text-secondary",
-                  review.sentiment === "Negative" && "bg-destructive/20 text-destructive"
-                )}>
-                  {review.sentiment}
-                </span>
-              </div>
-              <div className="col-span-1">
-                <span className={cn(
-                  "text-xs px-2 py-1 rounded-full font-medium",
-                  review.status === "Pending" && "bg-secondary/20 text-secondary",
-                  review.status === "Replied" && "bg-primary/20 text-primary",
-                  review.status === "Escalated" && "bg-destructive/20 text-destructive"
-                )}>
-                  {review.status}
-                </span>
-              </div>
-              <div className="col-span-1">
-                <span className={cn(
-                  "text-xs px-2 py-1 rounded-full font-medium",
-                  review.urgency === "Low" && "bg-muted text-muted-foreground",
-                  review.urgency === "Medium" && "bg-secondary/20 text-secondary",
-                  review.urgency === "High" && "bg-destructive/20 text-destructive"
-                )}>
-                  {review.urgency}
-                </span>
-              </div>
-              <div className="col-span-1 flex items-center gap-2">
-                <Link to={`/reviews/${review.id}`}>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <Eye className="w-4 h-4" />
-                  </Button>
-                </Link>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <MoreHorizontal className="w-4 h-4" />
-                </Button>
-              </div>
+              <div className="col-span-2">Reviewer</div>
+              <div className="col-span-1">Rating</div>
+              <div className="col-span-1">Source</div>
+              <div className="col-span-3">Snippet</div>
+              <div className="col-span-1">Sentiment</div>
+              <div className="col-span-1">Status</div>
+              <div className="col-span-1">Urgency</div>
+              <div className="col-span-1">Action</div>
             </div>
-          ))}
-        </div>
+
+            {/* Table Body */}
+            <div className="divide-y divide-border/50">
+              {filteredReviews.map((review) => (
+                <div 
+                  key={review.id} 
+                  className={cn(
+                    "grid grid-cols-12 gap-4 p-4 items-center hover:bg-muted/20 transition-colors group",
+                    selectedReviews.includes(review.id) && "bg-primary/5"
+                  )}
+                >
+                  <div className="col-span-1">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedReviews.includes(review.id)}
+                      onChange={() => toggleSelectReview(review.id)}
+                      className="w-4 h-4 rounded border-border bg-muted accent-primary"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-foreground font-medium text-sm">
+                        {review.reviewer_name[0]}
+                      </div>
+                      <span className="font-medium text-foreground text-sm truncate">{review.reviewer_name}</span>
+                    </div>
+                  </div>
+                  <div className="col-span-1">
+                    <div className="flex gap-0.5">
+                      {[...Array(5)].map((_, j) => (
+                        <Star key={j} className={`w-3 h-3 ${j < review.rating ? 'text-primary fill-primary' : 'text-muted'}`} />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="col-span-1">
+                    <span className="text-sm text-muted-foreground capitalize">{review.source}</span>
+                  </div>
+                  <div className="col-span-3">
+                    <p className="text-sm text-muted-foreground truncate">{review.text}</p>
+                  </div>
+                  <div className="col-span-1">
+                    {review.sentiment ? (
+                      <span className={cn(
+                        "text-xs px-2 py-1 rounded-full font-medium capitalize",
+                        review.sentiment === "positive" && "bg-primary/20 text-primary",
+                        review.sentiment === "neutral" && "bg-secondary/20 text-secondary",
+                        review.sentiment === "negative" && "bg-destructive/20 text-destructive"
+                      )}>
+                        {review.sentiment}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </div>
+                  <div className="col-span-1">
+                    <span className={cn(
+                      "text-xs px-2 py-1 rounded-full font-medium capitalize",
+                      review.status === "pending" && "bg-secondary/20 text-secondary",
+                      review.status === "replied" && "bg-primary/20 text-primary",
+                      review.status === "escalated" && "bg-destructive/20 text-destructive"
+                    )}>
+                      {review.status}
+                    </span>
+                  </div>
+                  <div className="col-span-1">
+                    {review.analysis_urgency ? (
+                      <span className={cn(
+                        "text-xs px-2 py-1 rounded-full font-medium capitalize",
+                        review.analysis_urgency === "low" && "bg-muted text-muted-foreground",
+                        review.analysis_urgency === "medium" && "bg-secondary/20 text-secondary",
+                        review.analysis_urgency === "high" && "bg-destructive/20 text-destructive"
+                      )}>
+                        {review.analysis_urgency}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </div>
+                  <div className="col-span-1 flex items-center gap-2">
+                    <Link to={`/reviews/${review.id}`}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                    </Link>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <MoreHorizontal className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </AppLayout>
   );
