@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
 import { 
   MessageSquare, 
@@ -5,61 +7,84 @@ import {
   Clock, 
   Star,
   ArrowUpRight,
-  ArrowDownRight,
   BarChart3,
-  Zap
+  Zap,
+  Plus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Link } from "react-router-dom";
-
-const stats = [
-  { 
-    label: "Total Reviews", 
-    value: "1,284", 
-    change: "+12%", 
-    trend: "up",
-    icon: MessageSquare,
-    color: "primary"
-  },
-  { 
-    label: "Avg. Rating", 
-    value: "4.6", 
-    change: "+0.3", 
-    trend: "up",
-    icon: Star,
-    color: "secondary"
-  },
-  { 
-    label: "Response Rate", 
-    value: "94%", 
-    change: "+8%", 
-    trend: "up",
-    icon: TrendingUp,
-    color: "accent"
-  },
-  { 
-    label: "Avg. Response Time", 
-    value: "2.4h", 
-    change: "-45%", 
-    trend: "down",
-    icon: Clock,
-    color: "primary"
-  },
-];
-
-const recentReviews = [
-  { name: "Sarah M.", rating: 5, preview: "Absolutely loved the service! Will definitely come back...", time: "2 min ago", status: "pending" },
-  { name: "John D.", rating: 3, preview: "The wait time was longer than expected but...", time: "1 hour ago", status: "replied" },
-  { name: "Emily R.", rating: 5, preview: "Best experience I've had in a long time. The staff...", time: "3 hours ago", status: "replied" },
-  { name: "Mike T.", rating: 2, preview: "Unfortunately I wasn't satisfied with...", time: "5 hours ago", status: "escalated" },
-];
+import { useProfile, useBusinesses, useDashboardStats } from "@/hooks/useBusinessData";
 
 const Dashboard = () => {
+  const navigate = useNavigate();
+  const { data: profile, isLoading: profileLoading } = useProfile();
+  const { data: businesses, isLoading: businessesLoading } = useBusinesses();
+  const activeBusiness = businesses?.[0];
+  const { data: stats, isLoading: statsLoading } = useDashboardStats(activeBusiness?.id);
+
+  // Redirect to onboarding if not completed
+  useEffect(() => {
+    if (!profileLoading && profile && !profile.onboarding_completed) {
+      navigate("/onboarding");
+    }
+  }, [profile, profileLoading, navigate]);
+
+  const isLoading = profileLoading || businessesLoading || statsLoading;
+
+  if (isLoading) {
+    return (
+      <AppLayout title="Dashboard" subtitle="Overview of your review performance">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-pulse text-muted-foreground">Loading...</div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!activeBusiness) {
+    return (
+      <AppLayout title="Dashboard" subtitle="Overview of your review performance">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <p className="text-muted-foreground">No business found. Please complete onboarding.</p>
+          <Button variant="neon" onClick={() => navigate("/onboarding")}>
+            Set up your business
+          </Button>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  const statCards = [
+    { 
+      label: "Total Reviews", 
+      value: stats?.total || 0, 
+      icon: MessageSquare,
+      color: "primary"
+    },
+    { 
+      label: "Avg. Rating", 
+      value: stats?.avgRating || "0.0", 
+      icon: Star,
+      color: "secondary"
+    },
+    { 
+      label: "Response Rate", 
+      value: `${stats?.responseRate || 0}%`, 
+      icon: TrendingUp,
+      color: "accent"
+    },
+    { 
+      label: "Pending Reviews", 
+      value: (stats?.total || 0) - (stats?.replied || 0), 
+      icon: Clock,
+      color: "primary"
+    },
+  ];
+
   return (
-    <AppLayout title="Dashboard" subtitle="Overview of your review performance">
+    <AppLayout title="Dashboard" subtitle={`Overview for ${activeBusiness.name}`}>
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {stats.map((stat, i) => (
+        {statCards.map((stat, i) => (
           <div 
             key={i} 
             className="bg-card rounded-2xl border border-border/50 p-6 hover:border-primary/30 transition-all duration-300"
@@ -75,16 +100,6 @@ const Dashboard = () => {
                   stat.color === 'secondary' ? 'text-secondary' :
                   'text-accent'
                 }`} />
-              </div>
-              <div className={`flex items-center gap-1 text-sm font-medium ${
-                stat.trend === 'up' ? 'text-primary' : 'text-destructive'
-              }`}>
-                {stat.change}
-                {stat.trend === 'up' ? (
-                  <ArrowUpRight className="w-4 h-4" />
-                ) : (
-                  <ArrowDownRight className="w-4 h-4" />
-                )}
               </div>
             </div>
             <p className="text-3xl font-display font-bold text-foreground mb-1">
@@ -107,34 +122,51 @@ const Dashboard = () => {
               </Button>
             </Link>
           </div>
-          <div className="space-y-4">
-            {recentReviews.map((review, i) => (
-              <div key={i} className="flex items-start gap-4 p-4 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors">
-                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-foreground font-medium flex-shrink-0">
-                  {review.name[0]}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-foreground">{review.name}</span>
-                    <div className="flex gap-0.5">
-                      {[...Array(5)].map((_, j) => (
-                        <Star key={j} className={`w-3 h-3 ${j < review.rating ? 'text-primary fill-primary' : 'text-muted'}`} />
-                      ))}
-                    </div>
-                    <span className="text-xs text-muted-foreground">{review.time}</span>
+          
+          {stats?.recentReviews && stats.recentReviews.length > 0 ? (
+            <div className="space-y-4">
+              {stats.recentReviews.map((review) => (
+                <Link 
+                  key={review.id} 
+                  to={`/reviews/${review.id}`}
+                  className="flex items-start gap-4 p-4 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors block"
+                >
+                  <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-foreground font-medium flex-shrink-0">
+                    {review.reviewer_name[0]}
                   </div>
-                  <p className="text-sm text-muted-foreground truncate mt-1">{review.preview}</p>
-                </div>
-                <span className={`text-xs px-2.5 py-1 rounded-full font-medium flex-shrink-0 ${
-                  review.status === 'pending' ? 'bg-secondary/20 text-secondary' :
-                  review.status === 'replied' ? 'bg-primary/20 text-primary' :
-                  'bg-destructive/20 text-destructive'
-                }`}>
-                  {review.status}
-                </span>
-              </div>
-            ))}
-          </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-foreground">{review.reviewer_name}</span>
+                      <div className="flex gap-0.5">
+                        {[...Array(5)].map((_, j) => (
+                          <Star key={j} className={`w-3 h-3 ${j < review.rating ? 'text-primary fill-primary' : 'text-muted'}`} />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate mt-1">{review.text}</p>
+                  </div>
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium flex-shrink-0 ${
+                    review.status === 'pending' ? 'bg-secondary/20 text-secondary' :
+                    review.status === 'replied' ? 'bg-primary/20 text-primary' :
+                    'bg-destructive/20 text-destructive'
+                  }`}>
+                    {review.status}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <MessageSquare className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground mb-4">No reviews yet</p>
+              <Link to="/reviews">
+                <Button variant="neon-outline">
+                  <Plus className="w-4 h-4" />
+                  Add your first review
+                </Button>
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Quick Actions & AI Insights */}
@@ -158,32 +190,49 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* AI Insights */}
-          <div className="bg-card rounded-2xl border border-border/50 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-neon flex items-center justify-center">
-                <Zap className="w-4 h-4 text-primary-foreground" />
+          {/* Sentiment Overview */}
+          {stats && (stats.sentiment.positive > 0 || stats.sentiment.neutral > 0 || stats.sentiment.negative > 0) && (
+            <div className="bg-card rounded-2xl border border-border/50 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-gradient-neon flex items-center justify-center">
+                  <Zap className="w-4 h-4 text-primary-foreground" />
+                </div>
+                <h2 className="font-display font-bold text-lg">Sentiment Overview</h2>
               </div>
-              <h2 className="font-display font-bold text-lg">AI Insights</h2>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground w-16">Positive</span>
+                  <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="h-full bg-primary rounded-full" 
+                      style={{ width: `${stats.total > 0 ? (stats.sentiment.positive / stats.total) * 100 : 0}%` }} 
+                    />
+                  </div>
+                  <span className="text-sm font-medium w-8">{stats.sentiment.positive}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground w-16">Neutral</span>
+                  <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="h-full bg-secondary rounded-full" 
+                      style={{ width: `${stats.total > 0 ? (stats.sentiment.neutral / stats.total) * 100 : 0}%` }} 
+                    />
+                  </div>
+                  <span className="text-sm font-medium w-8">{stats.sentiment.neutral}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground w-16">Negative</span>
+                  <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="h-full bg-destructive rounded-full" 
+                      style={{ width: `${stats.total > 0 ? (stats.sentiment.negative / stats.total) * 100 : 0}%` }} 
+                    />
+                  </div>
+                  <span className="text-sm font-medium w-8">{stats.sentiment.negative}</span>
+                </div>
+              </div>
             </div>
-            <div className="space-y-4">
-              <div className="p-3 rounded-xl bg-primary/10 border border-primary/20">
-                <p className="text-sm text-foreground">
-                  <span className="font-semibold text-primary">Trending:</span> 23% more reviews mention "fast service" this week
-                </p>
-              </div>
-              <div className="p-3 rounded-xl bg-secondary/10 border border-secondary/20">
-                <p className="text-sm text-foreground">
-                  <span className="font-semibold text-secondary">Suggestion:</span> Consider highlighting your quick turnaround in responses
-                </p>
-              </div>
-              <div className="p-3 rounded-xl bg-accent/10 border border-accent/20">
-                <p className="text-sm text-foreground">
-                  <span className="font-semibold text-accent">Alert:</span> 3 reviews require immediate attention
-                </p>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </AppLayout>

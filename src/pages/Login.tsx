@@ -1,9 +1,36 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Zap, ArrowRight } from "lucide-react";
+import { Zap, ArrowRight, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
 
 const Login = () => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const { signIn, user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) {
+      navigate("/dashboard");
+    }
+  }, [user, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    
+    const { error } = await signIn(email, password);
+    
+    if (!error) {
+      navigate("/dashboard");
+    }
+    
+    setIsLoading(false);
+  };
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6 relative overflow-hidden">
       {/* Background effects */}
@@ -31,7 +58,7 @@ const Login = () => {
             Welcome back! Enter your credentials to continue.
           </p>
 
-          <form className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="text-sm font-medium text-foreground mb-2 block">
                 Email
@@ -39,6 +66,10 @@ const Login = () => {
               <Input
                 type="email"
                 placeholder="you@business.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                disabled={isLoading}
               />
             </div>
 
@@ -54,15 +85,32 @@ const Login = () => {
               <Input
                 type="password"
                 placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                disabled={isLoading}
               />
             </div>
 
-            <Link to="/dashboard">
-              <Button variant="neon" className="w-full" size="lg">
-                Login
-                <ArrowRight className="w-4 h-4" />
-              </Button>
-            </Link>
+            <Button 
+              type="submit" 
+              variant="neon" 
+              className="w-full" 
+              size="lg"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                <>
+                  Login
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </Button>
           </form>
 
           <div className="mt-6 pt-6 border-t border-border/50 text-center">
