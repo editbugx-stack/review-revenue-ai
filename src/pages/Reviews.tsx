@@ -100,7 +100,8 @@ const Reviews = () => {
       if (!review) continue;
       
       try {
-        const result = await analyzeReview.mutateAsync({
+        await analyzeReview.mutateAsync({
+          reviewId: review.id,
           reviewText: review.text,
           reviewerName: review.reviewer_name,
           rating: review.rating,
@@ -109,20 +110,8 @@ const Reviews = () => {
             category: activeBusiness.category,
             defaultTone: activeBusiness.default_tone,
           },
-          action: "analyze",
         });
-        
-        if (result.analysis) {
-          await updateReview.mutateAsync({
-            id: reviewId,
-            sentiment: result.analysis.sentiment,
-            analysis_urgency: result.analysis.urgency,
-            analysis_category: result.analysis.category,
-            analysis_summary: result.analysis.summary,
-            missing_info_required: result.analysis.missingInfoRequired,
-            missing_info_fields: result.analysis.missingInfoFields || [],
-          });
-        }
+        // The mutation already updates the review and saves replies
       } catch (error) {
         console.error("Failed to analyze review:", reviewId, error);
       }
