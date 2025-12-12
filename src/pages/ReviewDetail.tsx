@@ -40,52 +40,32 @@ const ReviewDetail = () => {
     if (!review || !activeBusiness) return;
     
     setIsGenerating(true);
-    const newReplies: Array<{ tone: string; text: string }> = [];
     
-    const tones: Array<"friendly" | "formal" | "apologetic"> = ["friendly", "formal", "apologetic"];
-    
-    for (const tone of tones) {
-      try {
-        const result = await analyzeReview.mutateAsync({
-          reviewText: review.text,
-          reviewerName: review.reviewer_name,
-          rating: review.rating,
-          businessContext: {
-            name: activeBusiness.name,
-            category: activeBusiness.category,
-            defaultTone: activeBusiness.default_tone,
-            facts: Array.isArray(activeBusiness.facts) ? activeBusiness.facts as string[] : undefined,
-            refundPolicy: activeBusiness.refund_policy || undefined,
-            openingHours: activeBusiness.opening_hours || undefined,
-          },
-          action: "both",
-          tone,
-        });
-        
-        if (result.reply) {
-          newReplies.push({ tone: result.reply.tone, text: result.reply.replyText });
-        }
-        
-        // Also update analysis if available
-        if (result.analysis && !review.sentiment) {
-          await updateReview.mutateAsync({
-            id: review.id,
-            sentiment: result.analysis.sentiment,
-            analysis_urgency: result.analysis.urgency,
-            analysis_category: result.analysis.category,
-            analysis_summary: result.analysis.summary,
-          });
-        }
-      } catch (error) {
-        console.error(`Failed to generate ${tone} reply:`, error);
-      }
-    }
-    
-    setGeneratedReplies(newReplies);
-    setIsGenerating(false);
-    
-    if (newReplies.length > 0) {
+    try {
+      const result = await analyzeReview.mutateAsync({
+        reviewId: review.id,
+        reviewText: review.text,
+        reviewerName: review.reviewer_name,
+        rating: review.rating,
+        businessContext: {
+          name: activeBusiness.name,
+          category: activeBusiness.category,
+          defaultTone: activeBusiness.default_tone,
+        },
+      });
+      
+      // Map the replies to the format expected by the UI
+      const newReplies = result.replies.map((reply) => ({
+        tone: reply.tone === "professional" ? "formal" : reply.tone,
+        text: reply.text,
+      }));
+      
+      setGeneratedReplies(newReplies);
       toast({ title: "Replies generated", description: `${newReplies.length} reply drafts created` });
+    } catch (error) {
+      console.error("Failed to generate replies:", error);
+    } finally {
+      setIsGenerating(false);
     }
   };
 

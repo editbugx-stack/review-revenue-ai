@@ -196,48 +196,111 @@ export function useCreateReply() {
   });
 }
 
+// Types for AI analysis
+interface AnalyzeReviewParams {
+  reviewId: string;
+  reviewText: string;
+  reviewerName: string;
+  rating: number;
+  businessContext: {
+    name: string;
+    category: string;
+    defaultTone: string;
+  };
+}
+
+interface AnalysisResult {
+  sentiment: "positive" | "neutral" | "negative";
+  themes: string[];
+  priority: "low" | "medium" | "high";
+}
+
+interface GeneratedReply {
+  tone: "professional" | "friendly" | "empathetic";
+  text: string;
+}
+
+interface AnalyzeReviewResponse {
+  success: boolean;
+  analysis: AnalysisResult;
+  replies: GeneratedReply[];
+}
+
+// Map edge function tones to database enum values
+const toneMapping: Record<string, "friendly" | "formal" | "apologetic"> = {
+  professional: "formal",
+  friendly: "friendly",
+  empathetic: "apologetic",
+};
+
 // Analyze and generate reply using AI
 export function useAnalyzeReview() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   
   return useMutation({
-    mutationFn: async ({
-      reviewText,
-      reviewerName,
-      rating,
-      businessContext,
-      action,
-      tone,
-    }: {
-      reviewText: string;
-      reviewerName: string;
-      rating: number;
-      businessContext?: {
-        name: string;
-        category: string;
-        defaultTone: string;
-        facts?: string[];
-        refundPolicy?: string;
-        openingHours?: string;
-      };
-      action: "analyze" | "generate_reply" | "both";
-      tone?: "friendly" | "formal" | "apologetic";
-    }) => {
-      const response = await supabase.functions.invoke("analyze-review", {
-        body: { reviewText, reviewerName, rating, businessContext, action, tone },
+    mutationFn: async (params: AnalyzeReviewParams): Promise<AnalyzeReviewResponse> => {
+      // Call Supabase Edge Function
+      const { data, error } = await supabase.functions.invoke<AnalyzeReviewResponse>("analyze-review", {
+        body: params,
       });
       
-      if (response.error) {
-        throw new Error(response.error.message || "Failed to analyze review");
+      if (error) {
+        throw new Error(error.message || "Failed to analyze review");
       }
       
-      return response.data;
+      if (!data?.success) {
+        throw new Error("Analysis failed");
+      }
+      
+      // Update the review with analysis results
+      const { error: updateError } = await supabase
+        .from("reviews")
+        .update({
+          sentiment: data.analysis.sentiment,
+          analysis_urgency: data.analysis.priority,
+          analysis_summary: data.analysis.themes.join(", "),
+          analysis_category: data.analysis.themes[0] || null,
+        })
+        .eq("id", params.reviewId);
+      
+      if (updateError) {
+        console.error("Failed to update review:", updateError);
+      }
+      
+      // Save generated replies to the replies table
+      const repliesToInsert = data.replies.map((reply) => ({
+        review_id: params.reviewId,
+        tone: toneMapping[reply.tone] || "friendly",
+        text: reply.text,
+        is_approved: false,
+        created_by: "system_ai" as const,
+      }));
+      
+      const { error: repliesError } = await supabase
+        .from("replies")
+        .insert(repliesToInsert);
+      
+      if (repliesError) {
+        console.error("Failed to save replies:", repliesError);
+      }
+      
+      return data;
     },
-    onError: (error: any) => {
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["review", variables.reviewId] });
+      
+      toast({
+        title: "Analysis complete",
+        description: "AI has analyzed the review and generated reply suggestions.",
+      });
+    },
+    onError: (error: Error) => {
       toast({
         variant: "destructive",
-        title: "AI analysis failed",
-        description: error.message,
+        title: "Analysis failed",
+        description: error.message || "Could not analyze review. Please try again.",
       });
     },
   });
