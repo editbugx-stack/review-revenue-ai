@@ -1,6 +1,7 @@
 import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { 
   Star, 
   ArrowLeft,
@@ -13,7 +14,9 @@ import {
   Tag,
   TrendingUp,
   MessageSquare,
-  Loader2
+  Loader2,
+  X,
+  Save
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useReviewWithReplies, useBusinesses, useAnalyzeReview, useUpdateReview, useCreateReply } from "@/hooks/useBusinessData";
@@ -25,6 +28,9 @@ const ReviewDetail = () => {
   const { toast } = useToast();
   const [generatedReplies, setGeneratedReplies] = useState<Array<{ tone: string; text: string }>>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editedText, setEditedText] = useState("");
   
   const { data, isLoading } = useReviewWithReplies(id);
   const { data: businesses } = useBusinesses();
@@ -74,27 +80,56 @@ const ReviewDetail = () => {
     
     const toneValue = tone.toLowerCase() as "friendly" | "formal" | "apologetic";
     
-    const reply = await createReply.mutateAsync({
-      review_id: review.id,
-      text,
-      tone: toneValue,
-      is_approved: true,
-      created_by: "system_ai",
-    });
-    
-    await updateReview.mutateAsync({
-      id: review.id,
-      status: "replied",
-      approved_reply_id: reply.id,
-      replied_at: new Date().toISOString(),
-    });
-    
-    toast({ title: "Reply approved", description: "The reply has been saved and marked as approved." });
+    try {
+      const reply = await createReply.mutateAsync({
+        review_id: review.id,
+        text,
+        tone: toneValue,
+        is_approved: true,
+        created_by: "system_ai",
+      });
+      
+      await updateReview.mutateAsync({
+        id: review.id,
+        status: "replied",
+        approved_reply_id: reply.id,
+        replied_at: new Date().toISOString(),
+      });
+      
+      // Clear editing state and generated replies after approval
+      setEditingIndex(null);
+      setEditedText("");
+      setGeneratedReplies([]);
+      
+      toast({ title: "Reply approved", description: "The reply has been saved and marked as approved." });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to approve reply. Please try again.", variant: "destructive" });
+    }
   };
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
-    toast({ title: "Copied", description: "Reply copied to clipboard" });
+    setCopiedIndex(index);
+    toast({ title: "Copied!", description: "Reply copied to clipboard" });
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  const handleStartEdit = (index: number, text: string) => {
+    setEditingIndex(index);
+    setEditedText(text);
+  };
+
+  const handleSaveEdit = (index: number, tone: string) => {
+    const updatedReplies = [...generatedReplies];
+    updatedReplies[index] = { ...updatedReplies[index], text: editedText };
+    setGeneratedReplies(updatedReplies);
+    setEditingIndex(null);
+    toast({ title: "Edit saved", description: "Your changes have been saved." });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingIndex(null);
+    setEditedText("");
   };
 
   if (isLoading) {
@@ -290,7 +325,7 @@ const ReviewDetail = () => {
                   <p className="text-sm text-foreground whitespace-pre-line">
                     {reply.text}
                   </p>
-                  <Button variant="ghost" size="sm" className="mt-3" onClick={() => copyToClipboard(reply.text)}>
+                  <Button variant="ghost" size="sm" className="mt-3" onClick={() => copyToClipboard(reply.text, -1)}>
                     <Copy className="w-3 h-3" />
                     Copy
                   </Button>
@@ -319,24 +354,69 @@ const ReviewDetail = () => {
                         {draft.tone}
                       </span>
                     </div>
-                    <p className="text-sm text-muted-foreground whitespace-pre-line line-clamp-6">
-                      {draft.text}
-                    </p>
-                    <div className="flex gap-2 mt-4">
-                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(draft.text)}>
-                        <Copy className="w-3 h-3" />
-                        Copy
-                      </Button>
-                      <Button 
-                        variant="neon" 
-                        size="sm" 
-                        onClick={() => handleApproveReply(draft.text, draft.tone)}
-                        disabled={createReply.isPending}
-                      >
-                        <Check className="w-3 h-3" />
-                        Approve
-                      </Button>
-                    </div>
+                    
+                    {editingIndex === i ? (
+                      <div className="space-y-3">
+                        <Textarea
+                          value={editedText}
+                          onChange={(e) => setEditedText(e.target.value)}
+                          className="min-h-[120px] text-sm"
+                          placeholder="Edit your reply..."
+                        />
+                        <div className="flex gap-2">
+                          <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
+                            <X className="w-3 h-3" />
+                            Cancel
+                          </Button>
+                          <Button variant="neon-outline" size="sm" onClick={() => handleSaveEdit(i, draft.tone)}>
+                            <Save className="w-3 h-3" />
+                            Save
+                          </Button>
+                          <Button 
+                            variant="neon" 
+                            size="sm" 
+                            onClick={() => handleApproveReply(editedText, draft.tone)}
+                            disabled={createReply.isPending}
+                          >
+                            {createReply.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                            Approve
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm text-muted-foreground whitespace-pre-line">
+                          {draft.text}
+                        </p>
+                        <div className="flex gap-2 mt-4">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => copyToClipboard(draft.text, i)}
+                          >
+                            {copiedIndex === i ? <Check className="w-3 h-3 text-primary" /> : <Copy className="w-3 h-3" />}
+                            {copiedIndex === i ? "Copied!" : "Copy"}
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => handleStartEdit(i, draft.text)}
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            Edit
+                          </Button>
+                          <Button 
+                            variant="neon" 
+                            size="sm" 
+                            onClick={() => handleApproveReply(draft.text, draft.tone)}
+                            disabled={createReply.isPending}
+                          >
+                            {createReply.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                            Approve
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
