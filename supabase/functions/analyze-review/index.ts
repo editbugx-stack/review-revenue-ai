@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,13 +38,66 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      console.error("LOVABLE_API_KEY is not configured");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) {
+      console.error("GEMINI_API_KEY is not configured");
       return new Response(
         JSON.stringify({ success: false, error: "API key is not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // Verify auth token and get user
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Missing authorization header" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid or expired token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Rate limiting: check usage_metrics for today's AI calls
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+    
+    const { data: usageData, error: usageError } = await supabase
+      .from("usage_metrics")
+      .select("ai_calls_used")
+      .eq("user_id", user.id)
+      .gte("period_start", startOfDay.split('T')[0])
+      .single();
+
+    const currentCalls = usageData?.ai_calls_used || 0;
+    const DAILY_LIMIT = 50;
+
+    if (currentCalls >= DAILY_LIMIT) {
+      return new Response(
+        JSON.stringify({ success: false, error: `Daily limit of ${DAILY_LIMIT} AI requests exceeded. Try again tomorrow.` }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Update usage counter
+    if (usageData) {
+      await supabase
+        .from("usage_metrics")
+        .update({ ai_calls_used: currentCalls + 1, updated_at: new Date().toISOString() })
+        .eq("user_id", user.id)
+        .gte("period_start", startOfDay.split('T')[0]);
     }
 
     const { reviewId, reviewText, reviewerName, rating, businessContext } = await req.json() as ReviewAnalysisRequest;
@@ -57,77 +111,51 @@ serve(async (req) => {
 
     console.log(`Analyzing review ${reviewId} for business: ${businessContext?.name}`);
 
-    const prompt = `You are an AI assistant that analyzes customer reviews for businesses and generates professional responses.
+    // Build prompt for Gemini
+    const prompt = `You are a review response assistant. Analyze this customer review and provide a JSON response with the following structure: {"sentiment": "positive|negative|neutral", "themes": ["theme1", "theme2"], "priority": "high|medium|low", "replies": [{"tone": "professional", "text": "reply text here"}, {"tone": "friendly", "text": "reply text here"}, {"tone": "empathetic", "text": "reply text here"}]}. 
 
-Business Context:
-- Business Name: ${businessContext?.name || "Unknown Business"}
-- Category: ${businessContext?.category || "General"}
-- Default Tone: ${businessContext?.defaultTone || "friendly"}
+Business: ${businessContext?.name || "Unknown Business"} (${businessContext?.category || "General"})
+Reviewer: ${reviewerName || "Anonymous"}
+Rating: ${rating}/5
+Review: ${reviewText}
 
-Review to Analyze:
-- Reviewer: ${reviewerName || "Anonymous"}
-- Rating: ${rating}/5 stars
-- Review Text: "${reviewText}"
+Generate thoughtful replies that match the business tone: ${businessContext?.defaultTone || "friendly"}. Keep replies concise (2-3 sentences) and authentic. Priority should be "high" for negative reviews (1-2 stars), "medium" for neutral (3 stars), "low" for positive (4-5 stars). Return ONLY valid JSON, no markdown.`;
 
-Please analyze this review and provide a JSON response with the following structure (respond ONLY with valid JSON, no markdown or extra text):
-
-{
-  "analysis": {
-    "sentiment": "positive" OR "neutral" OR "negative",
-    "themes": ["array", "of", "key", "themes"],
-    "priority": "high" OR "medium" OR "low"
-  },
-  "replies": [
-    {
-      "tone": "professional",
-      "text": "A professional business response"
-    },
-    {
-      "tone": "friendly",
-      "text": "A warm, friendly response"
-    },
-    {
-      "tone": "empathetic",
-      "text": "An empathetic, understanding response"
-    }
-  ]
-}
-
-Guidelines:
-- Sentiment should reflect the overall feeling of the review
-- Themes should be 2-5 key topics mentioned
-- Priority: "high" for negative reviews, "medium" for neutral, "low" for positive
-- Each reply should be 2-4 sentences and address the reviewer by name if provided`;
-
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // Call Google Gemini API (FREE tier)
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    
+    const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: "You are a helpful AI that analyzes customer reviews and generates professional responses. Always respond with valid JSON only." },
-          { role: "user", content: prompt }
-        ],
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024,
+        }
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
+    if (!geminiResponse.ok) {
+      const errorText = await geminiResponse.text();
+      console.error("Gemini API error:", geminiResponse.status, errorText);
       
-      if (response.status === 429) {
+      if (geminiResponse.status === 429) {
         return new Response(
-          JSON.stringify({ success: false, error: "Rate limit exceeded. Please try again later." }),
+          JSON.stringify({ success: false, error: "Gemini API rate limit exceeded. Please try again later." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (response.status === 402) {
+      if (geminiResponse.status === 400) {
         return new Response(
-          JSON.stringify({ success: false, error: "Payment required. Please add credits." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({ success: false, error: "Invalid request to Gemini API" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       
@@ -137,17 +165,21 @@ Guidelines:
       );
     }
 
-    const data = await response.json();
-    const responseText = data.choices?.[0]?.message?.content;
+    const geminiData = await geminiResponse.json();
+    console.log("Gemini response received");
+
+    // Extract text from Gemini response
+    const responseText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!responseText) {
-      console.error("No content in AI response:", JSON.stringify(data));
+      console.error("No text in Gemini response:", JSON.stringify(geminiData));
       return new Response(
         JSON.stringify({ success: false, error: "No response from AI" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    // Parse JSON from response (handle potential markdown code blocks)
     let parsedResponse;
     try {
       let cleanedResponse = responseText.trim();
@@ -161,30 +193,28 @@ Guidelines:
       }
       parsedResponse = JSON.parse(cleanedResponse.trim());
     } catch (parseError) {
-      console.error("Failed to parse AI response as JSON:", responseText);
+      console.error("Failed to parse Gemini response as JSON:", responseText);
       return new Response(
         JSON.stringify({ success: false, error: "Failed to parse AI response" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const analysis = parsedResponse.analysis || {};
-    const replies = parsedResponse.replies || [];
-
+    // Build response in exact structure requested
     const result: AnalysisResponse = {
       success: true,
       analysis: {
-        sentiment: analysis.sentiment || "neutral",
-        themes: Array.isArray(analysis.themes) ? analysis.themes : [],
-        priority: analysis.priority || "medium",
+        sentiment: parsedResponse.sentiment || "neutral",
+        themes: Array.isArray(parsedResponse.themes) ? parsedResponse.themes : [],
+        priority: parsedResponse.priority || "medium",
       },
-      replies: replies.map((r: any) => ({
+      replies: (parsedResponse.replies || []).map((r: any) => ({
         tone: r.tone || "friendly",
         text: r.text || "",
       })),
     };
 
-    console.log(`Analysis complete for review ${reviewId}: sentiment=${result.analysis?.sentiment}`);
+    console.log(`Analysis complete for review ${reviewId}: sentiment=${result.analysis?.sentiment}, priority=${result.analysis?.priority}`);
 
     return new Response(
       JSON.stringify(result),
