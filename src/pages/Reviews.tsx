@@ -27,14 +27,17 @@ import {
 
 const statusFilters = ["All", "pending", "replied", "escalated"];
 const sentimentFilters = ["All", "positive", "neutral", "negative"];
+const ratingFilters = ["All", "5", "4", "3", "2", "1"];
 
 const Reviews = () => {
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedSentiment, setSelectedSentiment] = useState("All");
+  const [selectedRating, setSelectedRating] = useState("All");
   const [selectedReviews, setSelectedReviews] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [bulkAnalyzeProgress, setBulkAnalyzeProgress] = useState<{ current: number; total: number } | null>(null);
   const [newReview, setNewReview] = useState({
     reviewer_name: "",
     rating: 5,
@@ -54,6 +57,7 @@ const Reviews = () => {
   const filteredReviews = reviews?.filter(review => {
     if (selectedStatus !== "All" && review.status !== selectedStatus) return false;
     if (selectedSentiment !== "All" && review.sentiment !== selectedSentiment) return false;
+    if (selectedRating !== "All" && review.rating !== parseInt(selectedRating)) return false;
     if (searchQuery && !review.text.toLowerCase().includes(searchQuery.toLowerCase()) && 
         !review.reviewer_name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
@@ -90,16 +94,47 @@ const Reviews = () => {
     setNewReview({ reviewer_name: "", rating: 5, text: "", source: "manual" });
   };
 
+  // Helper to process reviews with concurrency limit
+  const processWithConcurrencyLimit = async <T, R>(
+    items: T[],
+    processor: (item: T, index: number) => Promise<R>,
+    concurrency: number = 3
+  ): Promise<{ successes: R[]; failures: { item: T; error: Error }[] }> => {
+    const successes: R[] = [];
+    const failures: { item: T; error: Error }[] = [];
+    
+    for (let i = 0; i < items.length; i += concurrency) {
+      const batch = items.slice(i, i + concurrency);
+      const results = await Promise.allSettled(
+        batch.map((item, batchIndex) => processor(item, i + batchIndex))
+      );
+      
+      results.forEach((result, idx) => {
+        if (result.status === "fulfilled") {
+          successes.push(result.value);
+        } else {
+          failures.push({ item: batch[idx], error: result.reason });
+        }
+      });
+      
+      setBulkAnalyzeProgress({ current: Math.min(i + concurrency, items.length), total: items.length });
+    }
+    
+    return { successes, failures };
+  };
+
   const handleBulkAnalyze = async () => {
     if (!activeBusiness || selectedReviews.length === 0) return;
     
-    toast({ title: "Analyzing reviews...", description: `Processing ${selectedReviews.length} reviews` });
+    setBulkAnalyzeProgress({ current: 0, total: selectedReviews.length });
     
-    for (const reviewId of selectedReviews) {
-      const review = reviews?.find(r => r.id === reviewId);
-      if (!review) continue;
-      
-      try {
+    const reviewsToAnalyze = selectedReviews
+      .map(id => reviews?.find(r => r.id === id))
+      .filter((r): r is NonNullable<typeof r> => r !== undefined);
+    
+    const { successes, failures } = await processWithConcurrencyLimit(
+      reviewsToAnalyze,
+      async (review) => {
         await analyzeReview.mutateAsync({
           reviewId: review.id,
           reviewText: review.text,
@@ -111,13 +146,26 @@ const Reviews = () => {
             defaultTone: activeBusiness.default_tone,
           },
         });
-        // The mutation already updates the review and saves replies
-      } catch (error) {
-        console.error("Failed to analyze review:", reviewId, error);
-      }
+        return review.id;
+      },
+      3 // Max 3 concurrent requests
+    );
+    
+    setBulkAnalyzeProgress(null);
+    
+    if (failures.length > 0) {
+      toast({
+        title: "Analysis completed with errors",
+        description: `Successfully analyzed ${successes.length} of ${selectedReviews.length} reviews. ${failures.length} failed.`,
+        variant: failures.length === selectedReviews.length ? "destructive" : "default",
+      });
+    } else {
+      toast({
+        title: "Analysis complete",
+        description: `Successfully analyzed ${successes.length} reviews`,
+      });
     }
     
-    toast({ title: "Analysis complete", description: "Reviews have been analyzed" });
     setSelectedReviews([]);
   };
 
@@ -206,12 +254,25 @@ const Reviews = () => {
               variant="neon" 
               size="sm"
               onClick={handleBulkAnalyze}
-              disabled={selectedReviews.length === 0 || analyzeReview.isPending}
+              disabled={selectedReviews.length === 0 || analyzeReview.isPending || bulkAnalyzeProgress !== null}
               className="flex-shrink-0"
             >
-              {analyzeReview.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-              <span className="hidden xs:inline">Analyze</span>
-              <span className="hidden sm:inline ml-1">({selectedReviews.length})</span>
+              {bulkAnalyzeProgress ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="hidden sm:inline ml-1">
+                    {bulkAnalyzeProgress.current}/{bulkAnalyzeProgress.total}
+                  </span>
+                </>
+              ) : analyzeReview.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Zap className="w-4 h-4" />
+                  <span className="hidden xs:inline">Analyze</span>
+                  <span className="hidden sm:inline ml-1">({selectedReviews.length})</span>
+                </>
+              )}
             </Button>
           </div>
         </div>
@@ -261,6 +322,33 @@ const Reviews = () => {
                 )}
               >
                 {sentiment}
+              </button>
+            ))}
+          </div>
+
+          <div className="w-full sm:w-px h-px sm:h-6 bg-border" />
+
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Rating:</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {ratingFilters.map((rating) => (
+              <button
+                key={rating}
+                onClick={() => setSelectedRating(rating)}
+                className={cn(
+                  "px-3 py-1.5 text-xs sm:text-sm rounded-lg transition-all flex items-center gap-1",
+                  selectedRating === rating
+                    ? "bg-primary/20 text-primary border border-primary/30"
+                    : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                )}
+              >
+                {rating === "All" ? rating : (
+                  <>
+                    {rating}
+                    <Star className="w-3 h-3 fill-current" />
+                  </>
+                )}
               </button>
             ))}
           </div>
