@@ -122,7 +122,7 @@ Review: ${reviewText}
 Generate thoughtful replies that match the business tone: ${businessContext?.defaultTone || "friendly"}. Keep replies concise (2-3 sentences) and authentic. Priority should be "high" for negative reviews (1-2 stars), "medium" for neutral (3 stars), "low" for positive (4-5 stars). Return ONLY valid JSON, no markdown.`;
 
     // Call Google Gemini API (FREE tier)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
     
     const geminiResponse = await fetch(geminiUrl, {
       method: "POST",
